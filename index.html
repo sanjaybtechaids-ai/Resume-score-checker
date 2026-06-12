@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Score Checker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="app-shell">
+        <section class="intro">
+            <p class="eyebrow">Resume Score Checker</p>
+            <h1>Upload your resume PDF and get a score.</h1>
+            <p class="intro-text">The checker reads your PDF and scores contact details, sections, skills, impact words, and resume length.</p>
+        </section>
+
+        <section class="checker-panel" aria-label="Resume PDF checker">
+            <label class="upload-box" for="resumeFile">
+                <span class="upload-icon">PDF</span>
+                <strong id="fileLabel">Choose resume PDF</strong>
+                <small>Only PDF files are supported.</small>
+                <input id="resumeFile" type="file" accept="application/pdf,.pdf">
+            </label>
+
+            <p id="statusText" class="status-text">No file selected.</p>
+
+            <div class="actions">
+                <button id="checkBtn" type="button">Check Score</button>
+                <button id="clearBtn" class="secondary" type="button">Clear</button>
+            </div>
+        </section>
+
+        <section id="results" class="results is-hidden" aria-live="polite">
+            <div class="score-card">
+                <div class="score-ring">
+                    <span id="scoreValue">0</span>
+                    <small>/100</small>
+                </div>
+                <div>
+                    <p class="result-label">Resume Score</p>
+                    <h2 id="scoreTitle">Ready to check</h2>
+                    <p id="scoreMessage">Upload your PDF and click check to see your score.</p>
+                </div>
+            </div>
+
+            <div class="details-grid">
+                <article>
+                    <h3>Strengths</h3>
+                    <div id="strengthList" class="chips"></div>
+                </article>
+
+                <article>
+                    <h3>Needs Work</h3>
+                    <div id="improvementList" class="chips warning"></div>
+                </article>
+
+                <article>
+                    <h3>Resume Sections</h3>
+                    <ul id="sectionList"></ul>
+                </article>
+
+                <article>
+                    <h3>Quick Tips</h3>
+                    <ul id="tipList"></ul>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        const resumeFile = document.getElementById("resumeFile");
+        const fileLabel = document.getElementById("fileLabel");
+        const statusText = document.getElementById("statusText");
+        const checkBtn = document.getElementById("checkBtn");
+        const clearBtn = document.getElementById("clearBtn");
+        const results = document.getElementById("results");
+
+        if (window.pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        }
+
+        const sectionChecks = [
+            { name: "Contact", words: ["email", "phone", "linkedin", "github", "portfolio"] },
+            { name: "Summary", words: ["summary", "profile", "objective"] },
+            { name: "Skills", words: ["skills", "technologies", "tools", "technical"] },
+            { name: "Experience", words: ["experience", "employment", "work history", "responsibilities"] },
+            { name: "Education", words: ["education", "degree", "university", "college"] },
+            { name: "Projects", words: ["project", "portfolio", "application"] }
+        ];
+
+        const skillWords = [
+            "javascript", "python", "java", "react", "node", "html", "css", "sql", "mongodb",
+            "api", "git", "aws", "azure", "docker", "testing", "excel", "analytics", "design"
+        ];
+
+        const impactWords = [
+            "built", "created", "developed", "improved", "reduced", "increased", "managed",
+            "led", "launched", "optimized", "automated", "delivered", "designed"
+        ];
+
+        function renderChips(containerId, items, emptyText) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = "";
+
+            if (!items.length) {
+                const empty = document.createElement("p");
+                empty.className = "empty-state";
+                empty.textContent = emptyText;
+                container.appendChild(empty);
+                return;
+            }
+
+            items.forEach(item => {
+                const chip = document.createElement("span");
+                chip.textContent = item;
+                container.appendChild(chip);
+            });
+        }
+
+        function renderList(containerId, items) {
+            const list = document.getElementById(containerId);
+            list.innerHTML = "";
+
+            items.forEach(item => {
+                const li = document.createElement("li");
+                li.textContent = item;
+                list.appendChild(li);
+            });
+        }
+
+        async function extractPdfText(file) {
+            if (!window.pdfjsLib) {
+                throw new Error("PDF reader failed to load. Please check your internet connection and refresh.");
+            }
+
+            const buffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+            const pages = [];
+
+            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+                const page = await pdf.getPage(pageNumber);
+                const content = await page.getTextContent();
+                pages.push(content.items.map(item => item.str).join(" "));
+            }
+
+            return pages.join(" ");
+        }
+
+        function scoreResume(text) {
+            const normalized = text.toLowerCase();
+            const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+
+            const foundSections = sectionChecks.filter(section =>
+                section.words.some(word => normalized.includes(word))
+            );
+            const foundSkills = skillWords.filter(word => normalized.includes(word));
+            const foundImpactWords = impactWords.filter(word => normalized.includes(word));
+            const hasEmail = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text);
+            const hasPhone = /(\+?\d[\d\s().-]{8,}\d)/.test(text);
+            const hasNumbers = /\b\d+%?|\$\d+|\d+\s*(users|clients|projects|hours|days|months|years)\b/i.test(text);
+
+            const sectionScore = (foundSections.length / sectionChecks.length) * 35;
+            const skillScore = Math.min(25, foundSkills.length * 3);
+            const impactScore = Math.min(15, foundImpactWords.length * 2 + (hasNumbers ? 5 : 0));
+            const contactScore = (hasEmail ? 5 : 0) + (hasPhone ? 5 : 0);
+            const lengthScore = wordCount >= 350 && wordCount <= 900 ? 15 : wordCount >= 200 ? 9 : 4;
+            const finalScore = Math.min(100, Math.round(sectionScore + skillScore + impactScore + contactScore + lengthScore));
+
+            const strengths = [];
+            const improvements = [];
+
+            if (hasEmail && hasPhone) strengths.push("Contact details");
+            else improvements.push("Add email and phone");
+
+            if (foundSections.length >= 5) strengths.push("Clear sections");
+            else improvements.push("Add missing sections");
+
+            if (foundSkills.length >= 5) strengths.push("Good skills list");
+            else improvements.push("Add more skills");
+
+            if (foundImpactWords.length >= 5) strengths.push("Action words");
+            else improvements.push("Use stronger action words");
+
+            if (hasNumbers) strengths.push("Measurable results");
+            else improvements.push("Add numbers and results");
+
+            if (wordCount >= 350 && wordCount <= 900) strengths.push("Good length");
+            else improvements.push("Improve resume length");
+
+            return {
+                finalScore,
+                foundSections,
+                foundSkills,
+                foundImpactWords,
+                hasNumbers,
+                strengths,
+                improvements,
+                wordCount
+            };
+        }
+
+        async function checkResume() {
+            const file = resumeFile.files[0];
+
+            if (!file) {
+                alert("Please upload your resume PDF first.");
+                return;
+            }
+
+            if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+                alert("Please select a PDF file.");
+                return;
+            }
+
+            try {
+                checkBtn.disabled = true;
+                statusText.textContent = "Reading PDF...";
+
+                const text = await extractPdfText(file);
+
+                if (text.trim().length < 80) {
+                    throw new Error("Could not read enough text from this PDF. Try a text-based resume PDF.");
+                }
+
+                const score = scoreResume(text);
+
+                document.getElementById("scoreValue").textContent = score.finalScore;
+                document.getElementById("scoreTitle").textContent =
+                    score.finalScore >= 80 ? "Strong resume" : score.finalScore >= 60 ? "Good resume" : "Needs improvement";
+                document.getElementById("scoreMessage").textContent =
+                    `Found about ${score.wordCount} words, ${score.foundSections.length} key sections, and ${score.foundSkills.length} common skills.`;
+
+                renderChips("strengthList", score.strengths, "No major strengths detected yet.");
+                renderChips("improvementList", score.improvements, "No major improvements detected.");
+                renderList("sectionList", sectionChecks.map(section => {
+                    const found = score.foundSections.includes(section);
+                    return `${found ? "Found" : "Missing"}: ${section.name}`;
+                }));
+                renderList("tipList", [
+                    "Keep your resume to one or two pages with clear section headings.",
+                    "Add numbers wherever possible, such as percentages, users, projects, or time saved.",
+                    "Put your strongest technical skills near the top.",
+                    "Use action words like built, improved, managed, launched, and optimized."
+                ]);
+
+                statusText.textContent = `Checked: ${file.name}`;
+                results.classList.remove("is-hidden");
+            } catch (error) {
+                statusText.textContent = error.message;
+                results.classList.add("is-hidden");
+            } finally {
+                checkBtn.disabled = false;
+            }
+        }
+
+        resumeFile.addEventListener("change", () => {
+            const file = resumeFile.files[0];
+            fileLabel.textContent = file ? file.name : "Choose resume PDF";
+            statusText.textContent = file ? "File selected. Click Check Score." : "No file selected.";
+            results.classList.add("is-hidden");
+        });
+
+        checkBtn.addEventListener("click", checkResume);
+        clearBtn.addEventListener("click", () => {
+            resumeFile.value = "";
+            fileLabel.textContent = "Choose resume PDF";
+            statusText.textContent = "No file selected.";
+            results.classList.add("is-hidden");
+        });
+    </script>
+</body>
+</html>
